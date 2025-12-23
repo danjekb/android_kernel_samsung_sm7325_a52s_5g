@@ -1,13 +1,6 @@
 # bone-machine-sm7325-kernel
 Stock Android Kernel for the Samsung A52s 5G (One UI only), with backported changes from A73 source code, KernelSU-Next root solution, disabled Samsung Knox, debugging and logging features, and switchable SELinux policy.
 
-# TBD
-
-- Template .zip file
-- modules.* files
-- Upload firmware folder
-- Steps makefile 1 2 1 2
-
 # How to build
 
 ### Clang
@@ -29,6 +22,18 @@ make -j$(nproc) \
   LLVM_IAS=1 \
   CONFIG_SECTION_MISMATCH_WARN_ONLY=y
 ```
+
+`Link-Time Optimization (LTO) (EXPERIMENTAL)` option 2
+
+`Use Clang's Control Flow Integrity (CFI) (CFI_CLANG)` yes
+
+`Use CFI shadow to speed up cross-module checks (CFI_CLANG_SHADOW)` yes
+
+`Use CFI in permissive mode (CFI_PERMISSIVE)` no
+
+`Use RELR relocation packing (RELR)` yes
+
+`Use Clang's ThinLTO (EXPERIMENTAL) (THINLTO)` yes
 
 Use `modules=0` to skip module compilation or add Image \ ?
 
