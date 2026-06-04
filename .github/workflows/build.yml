@@ -2,79 +2,82 @@ name: Build Kernel A52s 5G
 
 on:
   workflow_dispatch:
- branches:
-      - main
 
 jobs:
   build:
+    if: github.ref_name == 'main'
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Setup ccache
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/ccache
-        key: ${{ runner.os }}-kernel-ccache-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-kernel-ccache-
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-kernel-ccache-main
+          restore-keys: |
+            ${{ runner.os }}-kernel-ccache-
 
-    - name: Cache Toolchains
-      id: cache-toolchains
-      uses: actions/cache@v4
-      with:
-        path: toolchains
-        key: ${{ runner.os }}-toolchains-${{ hashFiles('.github/workflows/build.yml') }}
+      - name: Cache toolchains
+        id: cache-toolchains
+        uses: actions/cache@v4
+        with:
+          path: toolchains
+          key: ${{ runner.os }}-toolchains-${{ hashFiles('.github/workflows/build.yml') }}
 
-    - name: Setup Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential bc cpio curl wget git zip unzip zstd libssl-dev bison flex ccache
-        ccache -M 5G
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential bc cpio curl wget git zip unzip zstd \
+            libssl-dev libelf-dev libncurses-dev bison flex ccache
+          ccache -M 5G
 
-    - name: Download Toolchains
-      if: steps.cache-toolchains.outputs.cache-hit != 'true'
-      run: |
-        mkdir -p toolchains/clang toolchains/gcc
-        
-        wget -qO clang.tar.gz "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r530567.tar.gz"
-        tar -xzf clang.tar.gz -C toolchains/clang
-        
-        wget -qO gcc.tar.xz "https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz"
-        tar -xf gcc.tar.xz -C toolchains/gcc --strip-components=1
+      - name: Download toolchains
+        if: steps.cache-toolchains.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p toolchains/clang toolchains/gcc
+          wget -qO clang.tar.gz "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r530567.tar.gz"
+          tar -xzf clang.tar.gz -C toolchains/clang
+          wget -qO gcc.tar.xz "https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz"
+          tar -xf gcc.tar.xz -C toolchains/gcc --strip-components=1
 
-    - name: Build
-      run: |
-        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
-        
-        make O=$(pwd)/out ARCH=arm64 vendor/a52sxq_kor_single_defconfig
-        make -j$(nproc) \
-          O=$(pwd)/out \
-          ARCH=arm64 \
-          CC="ccache clang" \
-          LD=ld.lld \
-          NM=llvm-nm \
-          OBJCOPY=llvm-objcopy \
-          CLANG_TRIPLE=aarch64-none-linux-gnu- \
-          LLVM=1 \
-          LLVM_IAS=1 \
-          CROSS_COMPILE=llvm- \
-          CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+      - name: Build kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/toolchains/clang/lib:$LD_LIBRARY_PATH"
+          make O=$(pwd)/out ARCH=arm64 vendor/a52sxq_kor_single_defconfig
+          make -j$(nproc) \
+            O=$(pwd)/out \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CONFIG_SECTION_MISMATCH_WARN_ONLY=y
 
-    - name: Strip Modules
-      run: |
-        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$PATH"
-        mkdir -p out/modules_for_zip
-        
-        find out -type f -name "*.ko" -exec cp {} out/modules_for_zip/ \;
-        find out/modules_for_zip -type f -name "*.ko" -exec llvm-strip --strip-unneeded {} \;
+      - name: Strip modules
+        run: |
+          export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$PATH"
+          mkdir -p out/modules_for_zip
+          find out -type f -name "*.ko" -exec cp {} out/modules_for_zip/ \;
+          find out/modules_for_zip -type f -name "*.ko" -exec llvm-strip --strip-unneeded {} \;
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: Kernel-Artifacts
-        path: |
-          out/arch/arm64/boot/Image
-          out/arch/arm64/boot/dts/vendor/qcom/yupik.dtb
-          out/modules_for_zip/
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp out/arch/arm64/boot/Image artifacts/
+          find out/arch/arm64/boot/dts -name "*.dtb" -exec cp {} artifacts/ \;
+          cp -r out/modules_for_zip artifacts/modules
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-A52s-5G
+          path: artifacts/
